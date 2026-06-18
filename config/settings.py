@@ -131,19 +131,17 @@ TESTING = 'test' in sys.argv
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 
 if TESTING:
-    # 1. Use dummy cache
+
     CACHES = {
         'default': {
             'BACKEND': 'django.core.cache.backends.dummy.DummyCache',
         }
     }
-    # 2. Force Celery to run locally and use memory, bypassing Redis entirely
     CELERY_TASK_ALWAYS_EAGER = True
     CELERY_TASK_STORE_EAGER_RESULT = True
     CELERY_BROKER_URL = 'memory://'
     CELERY_RESULT_BACKEND = 'cache+memory://'
 else:
-    # Normal production/development behavior
     CACHES = {
         'default': {
             'BACKEND': 'django_redis.cache.RedisCache',

@@ -7,9 +7,7 @@ class StoreSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'location']
 
 class InventoryListSerializer(serializers.ModelSerializer):
-    """Used specifically for the GET /stores/<id>/inventory/ endpoint."""
     
-    # We pull these fields through the foreign keys to flatten the JSON response
     product_title = serializers.CharField(source='product.title')
     product_price = serializers.DecimalField(source='product.price', max_digits=10, decimal_places=2)
     category_name = serializers.CharField(source='product.category.name')

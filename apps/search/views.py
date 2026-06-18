@@ -19,7 +19,6 @@ class ProductSearchView(APIView):
     def get(self, request):
         params = request.query_params
 
-        # Build a unique cache key based on the exact search parameters
         cache_key = 'search:' + str(sorted(params.items()))
         cached = cache.get(cache_key)
         if cached:
@@ -27,7 +26,6 @@ class ProductSearchView(APIView):
 
         queryset = Product.objects.select_related('category').all()
 
-        # ── Keyword search ────────────────────────────────────────────────────
         q = params.get('q', '').strip()
         if q:
             queryset = queryset.filter(
@@ -36,7 +34,6 @@ class ProductSearchView(APIView):
                 Q(category__name__icontains=q)
             )
 
-        # ── Filters ───────────────────────────────────────────────────────────
         category = params.get('category')
         if category:
             queryset = queryset.filter(category__name__icontains=category)
@@ -56,7 +53,6 @@ class ProductSearchView(APIView):
             ).values_list('product_id', flat=True)
             queryset = queryset.filter(id__in=stocked_product_ids)
 
-        # ── Sorting ───────────────────────────────────────────────────────────
         sort = params.get('sort', 'relevance')
         if sort == 'price_asc':
             queryset = queryset.order_by('price')
@@ -67,7 +63,6 @@ class ProductSearchView(APIView):
         else:
             queryset = queryset.order_by('title')
 
-        # ── Pagination ────────────────────────────────────────────────────────
         paginator = PageNumberPagination()
         paginator.page_size = 20
         page = paginator.paginate_queryset(queryset, request)
@@ -75,7 +70,6 @@ class ProductSearchView(APIView):
         serializer = ProductSerializer(page, many=True)
         response_data = paginator.get_paginated_response(serializer.data).data
 
-        # Cache for 5 minutes (300 seconds)
         cache.set(cache_key, response_data, timeout=300)
 
         return Response(response_data)
@@ -91,7 +85,6 @@ class AutocompleteView(APIView):
     RATE_WINDOW = 60   # per 60 seconds
 
     def get(self, request):
-        # ── Rate limiting using Redis ─────────────────────────────────────────
         from django.core.cache import cache as redis_cache
 
         ip = request.META.get('REMOTE_ADDR', 'unknown')
@@ -108,12 +101,10 @@ class AutocompleteView(APIView):
         else:
             redis_cache.incr(rl_key)
 
-        # ── Input validation ──────────────────────────────────────────────────
         q = request.query_params.get('q', '').strip()
         if len(q) < 3:
             return Response({'error': 'Minimum 3 characters required.'}, status=400)
 
-        # ── Query: Prefix matches first, then general matches ─────────────────
         queryset = (
             Product.objects
             .filter(title__icontains=q)
