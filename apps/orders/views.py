@@ -6,6 +6,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
+from drf_spectacular.utils import extend_schema
+
 from apps.stores.models import Store, Inventory
 from apps.products.models import Product
 from .models import Order, OrderItem
@@ -15,6 +17,11 @@ from .tasks import send_order_confirmation
 
 class OrderCreateView(APIView):
 
+    @extend_schema(
+        summary='Create an order',
+        request=OrderCreateSerializer,
+        responses={201: OrderSerializer},
+    )
     def post(self, request):
         serializer = OrderCreateSerializer(data=request.data)
         if not serializer.is_valid():
@@ -65,7 +72,7 @@ class OrderCreateView(APIView):
                     inv = inventory_map[item['product_id']]
                     inv.quantity -= item['quantity_requested']
                     inv.save()
-    
+
         send_order_confirmation.delay(order.id)
 
         order_with_count = Order.objects.annotate(
@@ -80,6 +87,10 @@ class OrderCreateView(APIView):
 
 class OrderListView(APIView):
 
+    @extend_schema(
+        summary='List orders for a store',
+        responses={200: OrderSerializer(many=True)},
+    )
     def get(self, request, store_id):
         store = get_object_or_404(Store, pk=store_id)
 
@@ -87,7 +98,7 @@ class OrderListView(APIView):
             Order.objects
             .filter(store=store)
             .annotate(item_count=Count('items'))
-            .prefetch_related('items__product') 
+            .prefetch_related('items__product')
             .order_by('-created_at')
         )
 

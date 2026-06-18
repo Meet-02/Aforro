@@ -6,8 +6,6 @@ This repository contains the backend API for Aforro, a robust retail and invento
 
 ## 🛠️ Setup Instructions (Local Development)
 
-If you prefer to run the application locally without Docker, follow these steps:
-
 1. **Clone the repository:**
    ```bash
    git clone <repository-url>
@@ -39,51 +37,59 @@ If you prefer to run the application locally without Docker, follow these steps:
    ```
 
 6. **Start the application components (requires 3 terminal windows):**
-   * **Terminal 1:** Start the message broker -> `redis-server`
-   * **Terminal 2:** Start the API server -> `python manage.py runserver`
-   * **Terminal 3:** Start the background worker -> `celery -A config worker --loglevel=info -P solo` *(Note: Omit `-P solo` if running on Mac/Linux)*
+   * **Terminal 1:** Start the message broker → `redis-server`
+   * **Terminal 2:** Start the API server → `python manage.py runserver`
+   * **Terminal 3:** Start the background worker → `celery -A config worker --loglevel=info -P solo` *(Omit `-P solo` on Mac/Linux)*
 
 ---
 
 ## 🐳 Docker Usage
 
-The easiest way to run the entire stack (Django API, PostgreSQL Database, Redis Cache, Celery Worker) is using Docker Compose.
+The easiest way to run the entire stack (Django API, PostgreSQL, Redis, Celery Worker) is using Docker Compose.
 
-1. **Build and start all containers in the background:**
+> **Before starting:** Open `config/settings.py` and make sure `ALLOWED_HOSTS = ['*']`. Without this, Django rejects all requests arriving at `0.0.0.0:8000`.
+
+1. **Build and start all containers:**
    ```bash
    docker compose up --build -d
    ```
 
-2. **Run database migrations inside the web container:**
-   ```bash
-   docker compose exec web python manage.py migrate
-   ```
-
-3. **Seed the database with test data:**
+2. **Seed the database with test data:**
    ```bash
    docker compose exec web python manage.py seed_groceries
    ```
+   *(Migrations run automatically when the container starts — no need to run them manually.)*
 
-4. **Monitor the logs in real-time:**
+3. **Monitor the logs in real-time:**
    ```bash
    docker compose logs -f
    ```
 
-5. **Stop and tear down the containers:**
+4. **Stop and tear down the containers:**
    ```bash
    docker compose down
    ```
 
 ---
 
+## 📖 API Documentation (Swagger & ReDoc)
+
+Once the server is running, interactive API docs are available at:
+
+| URL | Description |
+|---|---|
+| `http://127.0.0.1:8000/api/docs/` | **Swagger UI** — interactive, try endpoints live |
+| `http://127.0.0.1:8000/api/redoc/` | **ReDoc** — clean, readable reference |
+
+All endpoints, parameters, and response shapes are fully documented and testable directly from the browser — no curl or Postman needed.
+
+---
+
 ## 🔌 Sample API Requests
 
-Once the application components are running, you can test the endpoints using standard terminal utilities. 
-
-**CRITICAL NOTE FOR WINDOWS USERS:** When copying these commands, ensure you do not accidentally copy hidden rich-text hyperlinks (like `[http...]`). Only copy the raw text.
+> **IDs note:** `seed_groceries` creates **store ID `1`** and products with **IDs starting from `1`**. Use those in the requests below.
 
 ### 1. Search for a Product
-Retrieves a list of cached products matching a keyword query.
 * **cURL (Mac/Linux):**
   ```bash
   curl -X GET "http://127.0.0.1:8000/api/search/products/?q=bread"
@@ -94,7 +100,7 @@ Retrieves a list of cached products matching a keyword query.
   ```
 
 ### 2. Get Autocomplete Suggestions
-Fast typeahead search matching prefixes. **Note:** Enforces a Redis rate limit of 20 requests per minute per IP.
+Rate-limited to 20 requests per minute per IP. Requires minimum 3 characters.
 * **cURL (Mac/Linux):**
   ```bash
   curl -X GET "http://127.0.0.1:8000/api/search/suggest/?q=ban"
@@ -104,32 +110,45 @@ Fast typeahead search matching prefixes. **Note:** Enforces a Redis rate limit o
   Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/search/suggest/?q=ban" -Method GET
   ```
 
-### 3. Place a Multi-Item Grocery Order (Checkout)
-Submits a checkout payload to a specific store. The entire execution is wrapped inside a database transaction to prevent race conditions.
+### 3. Place an Order
 * **cURL (Mac/Linux):**
   ```bash
-  curl -X POST "http://127.0.0.1:8000/orders/"        -H "Content-Type: application/json"        -d '{"store_id": 21, "items": [{"product_id": 1001, "quantity_requested": 5}, {"product_id": 1010, "quantity_requested": 2}]}'
+  curl -X POST "http://127.0.0.1:8000/orders/" \
+       -H "Content-Type: application/json" \
+       -d '{"store_id": 1, "items": [{"product_id": 1, "quantity_requested": 2}, {"product_id": 2, "quantity_requested": 1}]}'
   ```
 * **PowerShell (Windows):**
   ```powershell
-  Invoke-RestMethod -Uri "http://127.0.0.1:8000/orders/" -Method POST -Headers @{"Content-Type"="application/json"} -Body '{"store_id": 21, "items": [{"product_id": 1001, "quantity_requested": 5}, {"product_id": 1010, "quantity_requested": 2}]}'
+  Invoke-RestMethod -Uri "http://127.0.0.1:8000/orders/" -Method POST -Headers @{"Content-Type"="application/json"} -Body '{"store_id": 1, "items": [{"product_id": 1, "quantity_requested": 2}, {"product_id": 2, "quantity_requested": 1}]}'
   ```
 
-*(Note: When executed, check your active Celery terminal worker to monitor the background processing of the asynchronous order confirmation task.)*
+*(After placing an order, check your Celery terminal to see the async order confirmation task fire.)*
 
----
+### 4. List Orders for a Store
+* **cURL (Mac/Linux):**
+  ```bash
+  curl -X GET "http://127.0.0.1:8000/stores/1/orders/"
+  ```
+
+### 5. List Inventory for a Store
+* **cURL (Mac/Linux):**
+  ```bash
+  curl -X GET "http://127.0.0.1:8000/stores/1/inventory/"
+  ```
 
 ---
 
 ## ⚡ Notes on Caching & Async Logic
 
-* **Caching (Redis):** Read-heavy endpoints utilize Redis caching. The results of complex search queries are cached for 5 minutes (`timeout=300`), drastically reducing database load.
-* **Rate Limiting (Redis):** The Autocomplete API leverages Redis to track IP addresses and enforces a strict rate limit of 20 requests per 60 seconds to prevent abuse.
-* **Asynchronous Processing (Celery):** Actions that do not require immediate HTTP responses (like sending Order Confirmations) are offloaded to background workers, ensuring the user receives an instant API response.
+* **Caching (Redis):** The Product Search API (`/api/search/products/`) caches results in Redis for 5 minutes (`timeout=300`), reducing database load for repeated searches.
+* **Rate Limiting (Redis):** The Autocomplete API (`/api/search/suggest/`) enforces a limit of 20 requests per 60 seconds per IP using a Redis atomic counter.
+* **Asynchronous Processing (Celery):** After an order is saved, an async Celery task fires for the confirmation notification — keeping the API response instant. The task is dispatched **after** `transaction.atomic()` closes to ensure the order is committed before the worker reads it.
 
 ---
 
 ## 📈 Scalability Considerations
 
-* **Transaction Safety:** Order placement uses `transaction.atomic()` and `select_for_update()`. This enforces row-level database locking, preventing race conditions where multiple concurrent users try to purchase the last item.
-* **N+1 Query Prevention:** The Django ORM is optimized using `select_related()` and `prefetch_related()` to ensure related data is fetched in exactly 1 or 2 queries.
+* **Transaction Safety:** Order placement uses `transaction.atomic()` and `select_for_update()`, enforcing row-level locking to prevent race conditions when multiple users purchase the same item simultaneously.
+* **N+1 Query Prevention:** All list endpoints use `select_related()`, `prefetch_related()`, and `annotate()` to fetch related data in 1–2 SQL queries regardless of result size.
+* **Stateless Web Nodes:** The Django API holds no in-process state, so multiple instances can run behind a load balancer without any code changes.
+* **Celery Worker Scaling:** Workers are stateless — run `docker compose up --scale celery=4` to add more workers during high-volume periods.

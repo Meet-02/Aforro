@@ -5,17 +5,29 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 
+from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
+
 from apps.products.models import Product
 from apps.stores.models import Inventory
 from apps.products.serializers import ProductSerializer
 
-class ProductSearchView(APIView):
-    """
-    GET /api/search/products/
-    Supports keyword search, filters, sorting, and pagination.
-    Results are cached in Redis for 5 minutes.
-    """
 
+class ProductSearchView(APIView):
+
+    @extend_schema(
+        summary='Search products',
+        parameters=[
+            OpenApiParameter('q',         OpenApiTypes.STR,  description='Keyword (searches title, description, category)'),
+            OpenApiParameter('category',  OpenApiTypes.STR,  description='Filter by category name'),
+            OpenApiParameter('min_price', OpenApiTypes.DECIMAL, description='Minimum price'),
+            OpenApiParameter('max_price', OpenApiTypes.DECIMAL, description='Maximum price'),
+            OpenApiParameter('store_id',  OpenApiTypes.INT,  description='Only products stocked at this store'),
+            OpenApiParameter('sort',      OpenApiTypes.STR,  description='price_asc | price_desc | newest | relevance'),
+            OpenApiParameter('page',      OpenApiTypes.INT,  description='Page number'),
+        ],
+        responses={200: ProductSerializer(many=True)},
+    )
     def get(self, request):
         params = request.query_params
 
@@ -76,14 +88,17 @@ class ProductSearchView(APIView):
 
 
 class AutocompleteView(APIView):
-    """
-    GET /api/search/suggest/?q=xxx
-    Fast prefix-first autocomplete with Redis rate limiting.
-    """
 
-    RATE_LIMIT  = 20   # max requests
-    RATE_WINDOW = 60   # per 60 seconds
+    RATE_LIMIT  = 20
+    RATE_WINDOW = 60
 
+    @extend_schema(
+        summary='Autocomplete product titles',
+        parameters=[
+            OpenApiParameter('q', OpenApiTypes.STR, required=True, description='Min 3 characters. Rate limited to 20 req/min.'),
+        ],
+        responses={200: {'type': 'object', 'properties': {'results': {'type': 'array', 'items': {'type': 'string'}}}}},
+    )
     def get(self, request):
         from django.core.cache import cache as redis_cache
 
@@ -94,10 +109,7 @@ class AutocompleteView(APIView):
         if count == 0:
             redis_cache.set(rl_key, 1, timeout=self.RATE_WINDOW)
         elif count >= self.RATE_LIMIT:
-            return Response(
-                {'error': 'Rate limit exceeded. Try again in a minute.'},
-                status=429
-            )
+            return Response({'error': 'Rate limit exceeded. Try again in a minute.'}, status=429)
         else:
             redis_cache.incr(rl_key)
 
